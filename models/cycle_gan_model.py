@@ -160,9 +160,9 @@ class CycleGANModel(BaseModel):
         self.loss_VGG_B = 0
         if self.vgg_loss:
             # Forward VGG feature matching loss
-            self.loss_VGG_A = self.criterionVGG(self.rec_B, self.real_A)
+            self.loss_VGG_A = self.criterionVGG(self.rec_A, self.real_A)
             # Backward VGG feature matching loss
-            self.loss_VGG_B = self.criterionVGG(self.rec_A, self.real_B)
+            self.loss_VGG_B = self.criterionVGG(self.rec_B, self.real_B)
         
         # combined loss
         self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B + self.loss_feat_A + self.loss_feat_B + self.loss_VGG_A + self.loss_VGG_B
