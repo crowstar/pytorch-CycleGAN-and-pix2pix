@@ -19,6 +19,9 @@ class CycleGANModel(BaseModel):
                                 help='weight for cycle loss (B -> A -> B)')
             parser.add_argument('--lambda_identity', type=float, default=0.5,
                                 help='use identity mapping. Setting lambda_identity other than 0 has an effect of scaling the weight of the identity mapping loss. For example, if the weight of the identity loss should be 10 times smaller than the weight of the reconstruction loss, please set lambda_identity = 0.1')
+            parser.add_argument('--num_D', type=int, default=1, help='number of levels of disciminator')
+            parser.add_argument('--lambda_feat', type=float, default=0.0, help='weight for D feature matching')
+            parser.add_argument('--lambda_VGG', type=float, default=0.0, help='weight for VGG feature matching')
 
         return parser
 
@@ -26,13 +29,21 @@ class CycleGANModel(BaseModel):
         BaseModel.initialize(self, opt)
 
         # specify the training losses you want to print out. The program will call base_model.get_current_losses
-        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'idt_A', 'D_B', 'G_B', 'cycle_B', 'idt_B']
+        self.loss_names = ['D_A', 'G_A', 'cycle_A', 'idt_A', 'D_B', 'G_B', 'cycle_B', 'idt_B', 'feat_A', 'feat_B', 'VGG_A', 'VGG_B']
         # specify the images you want to save/display. The program will call base_model.get_current_visuals
         visual_names_A = ['real_A', 'fake_B', 'rec_A']
         visual_names_B = ['real_B', 'fake_A', 'rec_B']
         if self.isTrain and self.opt.lambda_identity > 0.0:
             visual_names_A.append('idt_A')
             visual_names_B.append('idt_B')
+            
+        self.getIntermFeat = False
+        if self.isTrain and self.opt.lambda_feat > 0.0:
+            self.getIntermFeat = True
+            
+        self.vgg_loss = False
+        if self.isTrain and self.opt.lambda_VGG > 0.0:
+            self.vgg_loss = True
 
         self.visual_names = visual_names_A + visual_names_B
         # specify the models you want to save to the disk. The program will call base_model.save_networks and base_model.load_networks
@@ -53,18 +64,22 @@ class CycleGANModel(BaseModel):
             use_sigmoid = opt.no_lsgan
             self.netD_A = networks.define_D(opt.output_nc, opt.ndf,
                                             opt.which_model_netD,
-                                            opt.n_layers_D, opt.norm, use_sigmoid, opt.init_type, self.gpu_ids)
+                                            opt.n_layers_D, opt.norm, use_sigmoid, opt.init_type, opt.num_D, self.getIntermFeat, self.gpu_ids)
             self.netD_B = networks.define_D(opt.input_nc, opt.ndf,
                                             opt.which_model_netD,
-                                            opt.n_layers_D, opt.norm, use_sigmoid, opt.init_type, self.gpu_ids)
+                                            opt.n_layers_D, opt.norm, use_sigmoid, opt.init_type, opt.num_D, self.getIntermFeat, self.gpu_ids)
 
         if self.isTrain:
             self.fake_A_pool = ImagePool(opt.pool_size)
             self.fake_B_pool = ImagePool(opt.pool_size)
             # define loss functions
-            self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan).to(self.device)
+            self.criterionGAN = networks.GANLoss(use_lsgan=not opt.no_lsgan, tensor=torch.cuda.FloatTensor)
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
+            if self.getIntermFeat:
+                self.criterionFeat = networks.FeatLoss(opt.num_D, opt.n_layers_D)
+            if self.vgg_loss:
+                self.criterionVGG = networks.VGGLoss(self.gpu_ids)
             # initialize optimizers
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()),
                                                 lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -132,8 +147,25 @@ class CycleGANModel(BaseModel):
         self.loss_cycle_A = self.criterionCycle(self.rec_A, self.real_A) * lambda_A
         # Backward cycle loss
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
+        # D feature matching losses
+        self.loss_feat_A = 0
+        self.loss_feat_B = 0
+        if self.getIntermFeat:
+            # Forward D feature matching loss
+            self.loss_feat_A = self.criterionFeat(self.netD_B(self.rec_A), self.netD_B(self.real_A)) * self.opt.lambda_feat
+            # Backward D feature matching loss
+            self.loss_feat_B = self.criterionFeat(self.netD_A(self.rec_B), self.netD_B(self.real_B)) * self.opt.lambda_feat
+        # VGG feature matching losses
+        self.loss_VGG_A = 0
+        self.loss_VGG_B = 0
+        if self.vgg_loss:
+            # Forward VGG feature matching loss
+            self.loss_VGG_A = self.criterionVGG(self.rec_B, self.real_A)
+            # Backward VGG feature matching loss
+            self.loss_VGG_B = self.criterionVGG(self.rec_A, self.real_B)
+        
         # combined loss
-        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
+        self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B + self.loss_feat_A + self.loss_feat_B + self.loss_VGG_A + self.loss_VGG_B
         self.loss_G.backward()
 
     def optimize_parameters(self):
