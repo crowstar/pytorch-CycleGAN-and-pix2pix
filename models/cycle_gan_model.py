@@ -97,10 +97,19 @@ class CycleGANModel(BaseModel):
 
     def forward(self):
         self.fake_B = self.netG_A(self.real_A)
-        self.rec_A = self.netG_B(self.fake_B)
-
         self.fake_A = self.netG_B(self.real_B)
-        self.rec_B = self.netG_A(self.fake_A)
+        
+        # add noise to reconstruction to fool steganography
+        if not self.opt.no_noise == True:
+            noiseA = self.fake_A.clone().normal_(0, 1) * 0.01
+            noiseB = self.fake_B.clone().normal_(0, 1) * 0.01
+            self.rec_A = self.netG_B(self.fake_B + noiseA)
+            self.rec_B = self.netG_A(self.fake_A + noiseB)
+            
+        else:
+            self.rec_A = self.netG_B(self.fake_B)
+            self.rec_B = self.netG_A(self.fake_A)
+            
 
     def backward_D_basic(self, netD, real, fake):
         # Real
