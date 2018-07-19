@@ -159,32 +159,34 @@ class GANLoss(nn.Module):
             return self.loss(input[-1], target_tensor)
 
 class VGGLoss(nn.Module):
-    def __init__(self, gpu_ids):
+    def __init__(self, gpu_ids, start_layer=0):
         super(VGGLoss, self).__init__()        
         self.vgg = Vgg19().cuda()
         self.criterion = nn.L1Loss()
-        self.weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1.0]        
+        self.weights = [1.0/32, 1.0/16, 1.0/8, 1.0/4, 1.0]
+        self.start_layer = start_layer
 
     def forward(self, x, y):              
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         loss = 0
-        for i in range(len(x_vgg)):
+        for i in range(start_layer, len(x_vgg)):
             loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())        
         return loss
 
 class FeatLoss(nn.Module):
-    def __init__(self, num_D, n_layers_D):
+    def __init__(self, num_D, n_layers_D, start_layer=0):
         super(FeatLoss, self).__init__()
         self.criterion = nn.L1Loss()
         self.num_D = num_D
         self.n_layers_D = n_layers_D
+        self.start_layer
         
     def forward(self, x, y):
         feat_weights = 4.0 / (self.n_layers_D + 1)
         D_weights = 1.0 / self.num_D
         loss = 0
         for i in range(self.num_D):
-            for j in range(len(y[i])-1):
+            for j in range(self.start_layer, len(y[i])-1):
                 loss += D_weights * feat_weights * self.criterion(x[i][j], y[i][j].detach())
         return loss
 
