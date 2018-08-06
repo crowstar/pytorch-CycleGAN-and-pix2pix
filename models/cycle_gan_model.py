@@ -103,8 +103,8 @@ class CycleGANModel(BaseModel):
         if not self.opt.no_noise == True:
             noiseA = self.fake_A.clone().normal_(0, 1) * 0.01
             noiseB = self.fake_B.clone().normal_(0, 1) * 0.01
-            self.rec_A = self.netG_B(self.fake_B + noiseA)
-            self.rec_B = self.netG_A(self.fake_A + noiseB)
+            self.rec_A = self.netG_B(self.fake_B + noiseB)
+            self.rec_B = self.netG_A(self.fake_A + noiseA)
             
         else:
             self.rec_A = self.netG_B(self.fake_B)
